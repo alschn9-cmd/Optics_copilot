@@ -1,0 +1,23 @@
+# Окружение
+.env
+.venv/
+venv/
+
+# Базы данных
+*.db
+*.sqlite3
+*.sqlite
+
+# Кэш Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Файлы IDE и ОС
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# ChromaDB (векторная база)
+chroma_db/
