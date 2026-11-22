@@ -30,6 +30,7 @@ class Settings(BaseSettings):
             "deepseek/deepseek-chat": {"input": 0.27, "output": 1.10},
             "openai/gpt-4o-mini": {"input": 0.15, "output": 0.60},
             "google/gemini-3.1-flash-lite": {"input": 0.10, "output": 0.40},
+            "openai/text-embedding-3-small": {"input": 0.02, "output": 0.0},
         }
     )
 

@@ -46,11 +46,31 @@ class LLMClient:
         purpose: TokenPurpose = TokenPurpose.CHAT,
     ) -> str:
         chosen = model or self.settings.llm_primary_model
+        content, input_tokens, output_tokens = self._with_retries(
+            lambda: self._request(system, user, chosen)
+        )
+        self._record_usage(chosen, input_tokens, output_tokens, item_id, purpose)
+        return content
+
+    def embed(
+        self,
+        text: str,
+        model: str | None = None,
+        *,
+        item_id: int | None = None,
+        purpose: TokenPurpose = TokenPurpose.EMBED,
+    ) -> list[float]:
+        chosen = model or self.settings.embedding_model
+        vector, input_tokens = self._with_retries(lambda: self._embed_request(text, chosen))
+        self._record_usage(chosen, input_tokens, 0, item_id, purpose)
+        return vector
+
+    def _with_retries(self, operation):
         delay = self._initial_delay
         last_error: Exception | None = None
         for attempt in range(1, self._max_attempts + 1):
             try:
-                content, input_tokens, output_tokens = self._request(system, user, chosen)
+                return operation()
             except (httpx.RequestError, RetryableError) as exc:
                 last_error = exc
                 if attempt == self._max_attempts:
@@ -58,9 +78,6 @@ class LLMClient:
                 logger.warning("LLM attempt %s failed: %s", attempt, exc)
                 self._sleeper(delay)
                 delay *= 2
-                continue
-            self._record_usage(chosen, input_tokens, output_tokens, item_id, purpose)
-            return content
         raise last_error or RuntimeError("LLM request failed")
 
     def _request(self, system: str, user: str, model: str) -> tuple[str, int, int]:
@@ -89,6 +106,23 @@ class LLMClient:
             int(usage.get("prompt_tokens") or 0),
             int(usage.get("completion_tokens") or 0),
         )
+
+    def _embed_request(self, text: str, model: str) -> tuple[list[float], int]:
+        url = f"{self.settings.llm_base_url.rstrip('/')}/embeddings"
+        response = self._client().post(
+            url,
+            headers={"Authorization": f"Bearer {self.settings.llm_api_key}"},
+            json={"model": model, "input": text},
+        )
+        if response.status_code == 429:
+            raise RetryableError(f"429 from {model}")
+        response.raise_for_status()
+        payload = response.json()
+        usage = payload.get("usage") if isinstance(payload, dict) else None
+        if not isinstance(usage, dict):
+            usage = {}
+        tokens = int(usage.get("prompt_tokens") or usage.get("total_tokens") or 0)
+        return _embedding_vector(payload), tokens
 
     def _record_usage(
         self,
@@ -129,6 +163,22 @@ def _completion_text(payload: object) -> str:
     if not isinstance(content, str):
         raise LLMResponseError("LLM response content is not text")
     return content
+
+
+def _embedding_vector(payload: object) -> list[float]:
+    if not isinstance(payload, dict):
+        raise LLMResponseError("LLM embedding response is not a JSON object")
+    data = payload.get("data")
+    if not isinstance(data, list) or not data or not isinstance(data[0], dict):
+        raise LLMResponseError("LLM embedding response does not contain data")
+    embedding = data[0].get("embedding")
+    if (
+        not isinstance(embedding, list)
+        or not embedding
+        or any(isinstance(value, bool) or not isinstance(value, int | float) for value in embedding)
+    ):
+        raise LLMResponseError("LLM embedding response does not contain a vector")
+    return [float(value) for value in embedding]
 
 
 def _commit_usage_only(session: Session, usage: TokenUsage) -> None:

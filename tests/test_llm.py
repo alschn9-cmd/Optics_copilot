@@ -1,3 +1,5 @@
+import json
+
 import httpx
 import pytest
 from sqlmodel import select
@@ -110,6 +112,43 @@ def test_complete_does_not_retry_other_http_errors(session):
     with pytest.raises(httpx.HTTPStatusError):
         client.complete("system", "user")
     assert calls["count"] == 1
+
+
+def test_embed_records_token_usage(session):
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url == "https://llm.example/v1/embeddings"
+        assert request.headers["authorization"] == "Bearer test-key"
+        body = json.loads(request.content)
+        assert body["model"] == "embed-model"
+        assert body["input"] == "гиростабилизация"
+        return httpx.Response(
+            200,
+            json={
+                "data": [{"index": 0, "embedding": [0.25, 0.5]}],
+                "usage": {"prompt_tokens": 12, "total_tokens": 12},
+            },
+        )
+
+    settings = Settings(
+        llm_api_key="test-key",
+        llm_base_url="https://llm.example/v1",
+        embedding_model="embed-model",
+        llm_price_per_million={"embed-model": {"input": 2.0, "output": 0.0}},
+        _env_file=None,
+    )
+    client = LLMClient(
+        session,
+        settings=settings,
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+    assert client.embed("гиростабилизация", item_id=4) == [0.25, 0.5]
+    usage = session.exec(select(TokenUsage)).one()
+    assert usage.purpose == TokenPurpose.EMBED
+    assert usage.model == "embed-model"
+    assert usage.item_id == 4
+    assert usage.input_tokens == 12
+    assert usage.output_tokens == 0
+    assert usage.cost_usd == pytest.approx(12 * 2 / 1_000_000)
 
 
 def test_unknown_model_price_is_zero():

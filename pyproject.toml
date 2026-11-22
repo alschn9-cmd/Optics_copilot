@@ -10,6 +10,7 @@ dependencies = [
     "selectolax>=1.0.2",
     "pypdf>=7.0.1",
     "apscheduler>=3.11.3",
+    "chromadb>=1.5.9",
 ]
 
 [dependency-groups]
