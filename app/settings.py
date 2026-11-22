@@ -41,6 +41,7 @@ class Settings(BaseSettings):
     chroma_persist_dir: str = "./data/chroma"
     pipeline_mode: str = "manual"
     pipeline_interval_hours: int = 6
+    pipeline_log_path: str = "./data/pipeline.log"
     admin_password: str = ""
 
     news_source_url: str = ""

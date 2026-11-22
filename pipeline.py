@@ -2,6 +2,7 @@ import argparse
 import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from pathlib import Path
 
 from apscheduler.schedulers.blocking import BlockingScheduler
 from sqlmodel import Session, select
@@ -101,6 +102,7 @@ def run(
 
 
 def schedule() -> None:
+    configure_logging()
     hours = get_settings().pipeline_interval_hours
     if hours < 1:
         raise ValueError("pipeline_interval_hours must be at least 1")
@@ -122,11 +124,25 @@ def _run_once() -> None:
         run(session)
 
 
-def main(argv: list[str] | None = None) -> None:
+def configure_logging() -> None:
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
+    path = Path(get_settings().pipeline_log_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    resolved = str(path.resolve())
+    root = logging.getLogger()
+    for handler in root.handlers:
+        if isinstance(handler, logging.FileHandler) and handler.baseFilename == resolved:
+            return
+    file_handler = logging.FileHandler(resolved, encoding="utf-8")
+    file_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+    root.addHandler(file_handler)
+
+
+def main(argv: list[str] | None = None) -> None:
+    configure_logging()
     parser = argparse.ArgumentParser(prog="pipeline")
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("run")

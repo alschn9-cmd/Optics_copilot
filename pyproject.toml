@@ -13,6 +13,7 @@ dependencies = [
     "chromadb>=1.5.9",
     "fastapi>=0.165.0",
     "aiogram==3.22.0",
+    "streamlit>=1.67.0",
 ]
 
 [dependency-groups]
