@@ -2,9 +2,9 @@ import httpx
 import pytest
 from sqlmodel import select
 
-from app.models import TokenPurpose, TokenUsage
+from app.models import ContentItem, ContentStatus, SourceType, TokenPurpose, TokenUsage
 from app.settings import Settings
-from services.llm import LLMClient, token_cost_usd
+from services.llm import LLMClient, LLMResponseError, token_cost_usd
 
 
 def _settings() -> Settings:
@@ -115,3 +115,93 @@ def test_complete_does_not_retry_other_http_errors(session):
 def test_unknown_model_price_is_zero():
     settings = _settings()
     assert token_cost_usd(settings, "missing-model", 100, 100) == 0.0
+
+
+def _fetched_item(session) -> ContentItem:
+    item = ContentItem(
+        source_url="https://example.com/usage",
+        source_type=SourceType.NEWS,
+        title_original="Gyro",
+        body_original="Body",
+        title_ru="",
+        status=ContentStatus.FETCHED,
+        content_hash="usage-hash",
+    )
+    session.add(item)
+    session.commit()
+    session.refresh(item)
+    return item
+
+
+def _client(session, handler) -> LLMClient:
+    return LLMClient(
+        session,
+        settings=_settings(),
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+
+
+def test_complete_commits_usage_and_leaves_pending_edit(session):
+    item = _fetched_item(session)
+    item.title_ru = "черновик"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=_completion("готово", 3, 4))
+
+    assert _client(session, handler).complete("system", "user") == "готово"
+    with session.no_autoflush:
+        usage = session.exec(select(TokenUsage)).one()
+        assert usage.input_tokens == 3
+        assert usage.output_tokens == 4
+        assert session.is_modified(item)
+
+    session.commit()
+    session.refresh(item)
+    assert item.title_ru == "черновик"
+
+
+def test_rollback_drops_pending_edit_and_keeps_token_usage(session):
+    item = _fetched_item(session)
+    item.title_ru = "черновик"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=_completion("готово", 3, 4))
+
+    _client(session, handler).complete("system", "user")
+    session.rollback()
+    session.refresh(item)
+    assert item.title_ru == ""
+    usage = session.exec(select(TokenUsage)).one()
+    assert usage.input_tokens == 3
+    assert usage.output_tokens == 4
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {},
+        {"choices": []},
+        {"choices": [{"message": {"content": None}}]},
+    ],
+)
+def test_incomplete_response_is_not_retried(session, payload):
+    calls = {"count": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["count"] += 1
+        return httpx.Response(200, json=payload)
+
+    with pytest.raises(LLMResponseError):
+        _client(session, handler).complete("system", "user")
+    assert calls["count"] == 1
+    assert session.exec(select(TokenUsage)).all() == []
+
+
+def test_empty_content_is_returned_and_recorded(session):
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=_completion("", 8, 1))
+
+    assert _client(session, handler).complete("system", "user") == ""
+    usage = session.exec(select(TokenUsage)).one()
+    assert usage.input_tokens == 8
+    assert usage.output_tokens == 1

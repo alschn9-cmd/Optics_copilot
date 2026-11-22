@@ -26,6 +26,7 @@ class SourceReport:
     created: int = 0
     updated: int = 0
     skipped: int = 0
+    store_errors: int = 0
     error: str | None = None
 
 
@@ -60,7 +61,7 @@ def _run_source(session: Session, source: SourceSpec) -> SourceReport:
         logger.exception("%s source failed", source.name)
         return SourceReport(name=source.name, error=str(exc))
 
-    created = updated = skipped = 0
+    created = updated = skipped = store_errors = 0
     for document in documents:
         try:
             action = store_fetched_item(session, document)
@@ -68,6 +69,7 @@ def _run_source(session: Session, source: SourceSpec) -> SourceReport:
         except Exception:
             logger.exception("failed to store %s", document.source_url)
             session.rollback()
+            store_errors += 1
             continue
         if action is StoreAction.CREATED:
             created += 1
@@ -76,17 +78,19 @@ def _run_source(session: Session, source: SourceSpec) -> SourceReport:
         else:
             skipped += 1
     logger.info(
-        "%s: created=%s updated=%s skipped=%s",
+        "%s: created=%s updated=%s skipped=%s store_errors=%s",
         source.name,
         created,
         updated,
         skipped,
+        store_errors,
     )
     return SourceReport(
         name=source.name,
         created=created,
         updated=updated,
         skipped=skipped,
+        store_errors=store_errors,
     )
 
 

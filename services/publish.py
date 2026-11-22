@@ -40,23 +40,27 @@ class CMSClient:
             "content": item.body_ru,
             "status": "publish",
         }
-        if item.cms_post_id is None:
-            data = self._request("POST", POSTS_PATH, payload)
-        else:
-            data = self._request("POST", f"{POSTS_PATH}/{item.cms_post_id}", payload)
-
+        data = self._upsert(item, payload)
         post_id = data.get("id") if isinstance(data, dict) else None
         if not isinstance(post_id, int):
             raise CMSError("WordPress response did not include a post id")
 
+        # The WordPress post already exists. Store its id before the status
+        # change so a later failure updates this post instead of creating another.
         item.cms_post_id = post_id
-        if item.status != ContentStatus.PUBLISHED:
-            advance_status(self.session, item, ContentStatus.PUBLISHED, mode, actor)
         self.session.add(item)
         self.session.commit()
+        if item.status != ContentStatus.PUBLISHED:
+            advance_status(self.session, item, ContentStatus.PUBLISHED, mode, actor)
+            self.session.commit()
         self.session.refresh(item)
         logger.info("published item %s as WordPress post %s", item.id, post_id)
         return item
+
+    def _upsert(self, item: ContentItem, payload: dict) -> dict:
+        if item.cms_post_id is None:
+            return self._request("POST", POSTS_PATH, payload)
+        return self._request("POST", f"{POSTS_PATH}/{item.cms_post_id}", payload)
 
     def unpublish(self, item: ContentItem) -> None:
         if item.cms_post_id is None:

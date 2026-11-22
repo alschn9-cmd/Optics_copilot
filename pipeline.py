@@ -43,7 +43,7 @@ def run(
     mode = current_pipeline_mode(session)
     reports = run_ingest(session, sources)
     summary.ingested = sum(report.created + report.updated for report in reports)
-    summary.errors = sum(1 for report in reports if report.error)
+    summary.errors = sum((1 if report.error else 0) + report.store_errors for report in reports)
 
     items = list(
         session.exec(select(ContentItem).where(ContentItem.status == ContentStatus.FETCHED)).all()

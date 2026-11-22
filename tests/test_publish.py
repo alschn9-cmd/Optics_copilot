@@ -69,6 +69,43 @@ def test_create_then_update_reuses_cms_post_id(session):
     assert logs[0].actor == "pipeline"
 
 
+def test_post_id_survives_failed_status_change(session, monkeypatch):
+    item = _translated(session)
+    calls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request.url.path)
+        return httpx.Response(200, json={"id": 7})
+
+    attempts = {"count": 0}
+
+    def flaky_advance(*args, **kwargs):
+        attempts["count"] += 1
+        if attempts["count"] == 1:
+            raise RuntimeError("status change failed")
+        return advance_status(*args, **kwargs)
+
+    monkeypatch.setattr("services.publish.advance_status", flaky_advance)
+    client = CMSClient(
+        session,
+        settings=_settings(),
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+    with pytest.raises(RuntimeError, match="status change failed"):
+        client.create_or_update_post(item, mode="auto", actor="pipeline")
+
+    session.rollback()
+    stored = session.get(ContentItem, item.id)
+    assert stored is not None
+    assert stored.cms_post_id == 7
+    assert stored.status == ContentStatus.TRANSLATED
+
+    client.create_or_update_post(stored, mode="auto", actor="pipeline")
+    assert calls == ["/wp-json/wp/v2/posts", "/wp-json/wp/v2/posts/7"]
+    assert stored.cms_post_id == 7
+    assert stored.status == ContentStatus.PUBLISHED
+
+
 def test_unpublish_sets_wordpress_draft(session):
     item = _translated(session)
     item.cms_post_id = 9

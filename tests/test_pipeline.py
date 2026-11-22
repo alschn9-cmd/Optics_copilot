@@ -10,8 +10,9 @@ from app.models import (
     SourceType,
     advance_status,
 )
+from ingest.dedup import store_fetched_item
 from ingest.fetcher import FetchedItem
-from ingest.run import SourceSpec
+from ingest.run import SourceSpec, run_ingest
 from pipeline import run
 from services.llm import LLMClient
 from services.publish import CMSClient
@@ -68,6 +69,49 @@ def _patch_side_effects(monkeypatch) -> tuple[list, list]:
 
 def _only_item(session) -> ContentItem:
     return session.exec(select(ContentItem)).one()
+
+
+def test_store_error_is_counted_and_other_documents_are_kept(session, monkeypatch):
+    _mode(session, "manual")
+    _patch_llm(monkeypatch, {"title_ru": TITLE_RU, "body_ru": BODY_RU})
+    _patch_side_effects(monkeypatch)
+    bad = FetchedItem(
+        source_url="https://example.com/bad",
+        source_type=SourceType.NEWS,
+        title=TITLE,
+        body=BODY,
+    )
+    good = FetchedItem(
+        source_url="https://example.com/good",
+        source_type=SourceType.NEWS,
+        title=TITLE,
+        body=BODY + " extra",
+    )
+
+    def flaky_store(db, document):
+        if document.source_url.endswith("/bad"):
+            raise RuntimeError("cannot store")
+        return store_fetched_item(db, document)
+
+    reports: list = []
+
+    def spy_ingest(db, sources=None):
+        result = run_ingest(db, sources)
+        reports.extend(result)
+        return result
+
+    monkeypatch.setattr("ingest.run.store_fetched_item", flaky_store)
+    monkeypatch.setattr("pipeline.run_ingest", spy_ingest)
+
+    summary = run(session, [SourceSpec("news", lambda: [bad, good])])
+
+    assert len(reports) == 1
+    assert reports[0].store_errors == 1
+    assert reports[0].created == 1
+    assert reports[0].error is None
+    stored = session.exec(select(ContentItem)).one()
+    assert stored.source_url == "https://example.com/good"
+    assert summary.errors == 1
 
 
 def test_manual_run_stops_at_pending_review(session, monkeypatch):

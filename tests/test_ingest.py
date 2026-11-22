@@ -1,4 +1,5 @@
 import io
+import logging
 
 import httpx
 import pytest
@@ -9,6 +10,7 @@ from app.models import ContentItem, ContentStatus, SourceType, advance_status
 from ingest.dedup import StoreAction, content_hash, store_fetched_item
 from ingest.fetcher import (
     FetchedItem,
+    _get_text,
     fetch_news,
     fetch_pdf,
     fetch_products,
@@ -320,6 +322,26 @@ def test_run_keeps_going_when_one_source_fails(session):
     stored = session.exec(select(ContentItem)).one()
     assert stored.source_url == "https://example.com/ok"
     assert stored.status is ContentStatus.FETCHED
+
+
+def test_get_text_logs_status_and_traceback(caplog):
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/missing":
+            return httpx.Response(404, text="missing")
+        raise httpx.ConnectError("connection dropped")
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    with caplog.at_level(logging.WARNING, logger="ingest.fetcher"):
+        assert _get_text(client, "https://example.com/missing") is None
+        assert _get_text(client, "https://example.com/down") is None
+
+    messages = [record.getMessage() for record in caplog.records]
+    assert any("status=404" in message and "/missing" in message for message in messages)
+    assert any("status=None" in message and "/down" in message for message in messages)
+    assert len(caplog.records) == 2
+    assert all(
+        record.exc_info is not None and record.exc_info[2] is not None for record in caplog.records
+    )
 
 
 def _text_pdf(text: str) -> bytes:

@@ -374,8 +374,10 @@ def _get_text(client: httpx.Client, url: str) -> str | None:
     try:
         response = client.get(url)
         response.raise_for_status()
-    except httpx.HTTPError:
-        logger.info("request failed: %s", url)
+    except httpx.HTTPError as exc:
+        response = getattr(exc, "response", None)
+        status = response.status_code if response is not None else None
+        logger.warning("request failed: %s status=%s", url, status, exc_info=True)
         return None
     return response.text
 
