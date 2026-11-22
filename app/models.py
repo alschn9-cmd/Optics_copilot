@@ -99,6 +99,17 @@ class Setting(SQLModel, table=True):
     value: str
 
 
+class ChatMessage(SQLModel, table=True):
+    __tablename__ = "chat_message"
+
+    id: int | None = Field(default=None, primary_key=True)
+    session_id: str = Field(index=True)
+    role: str
+    text: str
+    escalated: bool = False
+    created_at: datetime = Field(default_factory=utcnow)
+
+
 class TokenUsage(SQLModel, table=True):
     __tablename__ = "token_usage"
 
