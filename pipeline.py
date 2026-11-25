@@ -52,6 +52,10 @@ def run(
     llm = LLMClient(session)
     cms = CMSClient(session)
     for item in items:
+        if item.needs_ocr:
+            logger.error("item %s has no text layer and stays fetched", item.id)
+            summary.errors += 1
+            continue
         try:
             translate_item(session, item, llm, mode=mode, actor="pipeline")
         except Exception:
@@ -74,21 +78,27 @@ def run(
             )
             session.commit()
             summary.pending_review += 1
-            continue
 
-        try:
-            cms.create_or_update_post(item, mode=mode, actor="pipeline")
-        except Exception:
-            logger.exception("failed to publish item %s", item.id)
-            session.rollback()
-            summary.errors += 1
-            continue
-        summary.published += 1
-        try:
-            index_item(session, item)
-        except Exception:
-            logger.exception("failed to index item %s", item.id)
-            summary.errors += 1
+    if mode is PipelineMode.AUTO:
+        ready = list(
+            session.exec(
+                select(ContentItem).where(ContentItem.status == ContentStatus.TRANSLATED)
+            ).all()
+        )
+        for item in ready:
+            try:
+                cms.create_or_update_post(item, mode=mode, actor="pipeline")
+            except Exception:
+                logger.exception("failed to publish item %s", item.id)
+                session.rollback()
+                summary.errors += 1
+                continue
+            summary.published += 1
+            try:
+                index_item(session, item)
+            except Exception:
+                logger.exception("failed to index item %s", item.id)
+                summary.errors += 1
 
     logger.info(
         "pipeline run: ingested=%s translated=%s published=%s pending_review=%s errors=%s",

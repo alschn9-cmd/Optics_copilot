@@ -1,6 +1,6 @@
 from functools import lru_cache
 
-from pydantic import Field
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -41,7 +41,10 @@ class Settings(BaseSettings):
     chroma_persist_dir: str = "./data/chroma"
     pipeline_mode: str = "manual"
     pipeline_interval_hours: int = 6
-    pipeline_log_path: str = "./data/pipeline.log"
+    pipeline_log_path: str = Field(
+        default="./data/pipeline.log",
+        validation_alias=AliasChoices("PIPELINE_LOG_PATH", "PIPELINE_LOG"),
+    )
     admin_password: str = ""
 
     news_source_url: str = ""

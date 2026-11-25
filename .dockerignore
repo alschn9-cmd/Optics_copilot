@@ -1,0 +1,16 @@
+.git
+.cursor
+.venv
+venv
+.env
+data
+__pycache__
+.pytest_cache
+.ruff_cache
+*.db
+*.sqlite
+*.sqlite3
+tests
+_probe*
+_product.html
+_product.bin

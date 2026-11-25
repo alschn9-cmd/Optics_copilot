@@ -23,6 +23,14 @@ def _client(session):
         app.dependency_overrides.clear()
 
 
+def test_health_checks_the_database(session):
+    with _client(session) as client:
+        response = client.get("/health")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+
+
 def test_chat_returns_answer(session, monkeypatch):
     def fake_answer(question, history, db, client=None):
         assert question == "чем стабилизирует"

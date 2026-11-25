@@ -1,5 +1,6 @@
 from fastapi import Depends, FastAPI
 from pydantic import BaseModel, Field
+from sqlalchemy import text
 from sqlmodel import Session, select
 
 from app.db import get_session
@@ -21,6 +22,12 @@ class ChatOut(BaseModel):
 
 
 app = FastAPI()
+
+
+@app.get("/health")
+def health(session: Session = Depends(get_session)) -> dict[str, str]:
+    session.exec(text("SELECT 1")).one()
+    return {"status": "ok"}
 
 
 def handle_message(session: Session, session_id: str, message: str) -> ChatOut:

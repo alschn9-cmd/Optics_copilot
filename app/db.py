@@ -1,6 +1,7 @@
 from collections.abc import Generator
 from pathlib import Path
 
+from sqlalchemy import event
 from sqlmodel import Session, SQLModel, create_engine
 
 from app.settings import get_settings
@@ -9,9 +10,20 @@ settings = get_settings()
 
 connect_args = {}
 if settings.database_url.startswith("sqlite"):
-    connect_args = {"check_same_thread": False}
+    connect_args = {"check_same_thread": False, "timeout": 30}
 
 engine = create_engine(settings.database_url, connect_args=connect_args)
+
+
+def _sqlite_on_connect(dbapi_connection, _record) -> None:
+    cursor = dbapi_connection.cursor()
+    cursor.execute("PRAGMA journal_mode=WAL")
+    cursor.execute("PRAGMA busy_timeout=30000")
+    cursor.close()
+
+
+if settings.database_url.startswith("sqlite"):
+    event.listens_for(engine, "connect")(_sqlite_on_connect)
 
 
 def init_db() -> None:
