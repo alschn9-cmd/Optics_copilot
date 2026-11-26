@@ -1,3 +1,4 @@
+# Streamlit puts this file's directory on sys.path. The name app.py would hide the app package.
 from datetime import date, timedelta
 
 import pandas as pd

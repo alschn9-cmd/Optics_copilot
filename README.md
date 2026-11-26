@@ -20,7 +20,7 @@ uv run python -m pipeline run
 uv run python -m pipeline schedule
 uv run uvicorn bot.api:app --host 127.0.0.1 --port 8000
 uv run python -m bot.telegram
-uv run streamlit run admin/app.py
+uv run streamlit run admin/main.py
 ```
 
 `pipeline run` делает один прогон. `pipeline schedule` повторяет его каждые `PIPELINE_INTERVAL_HOURS` часов. Админка открывается на http://127.0.0.1:8501, чат API — на http://127.0.0.1:8000.
